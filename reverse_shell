@@ -6,7 +6,6 @@ import socket
 import select
 import argparse
 import time
-import urllib.parse
 import termios
 import fcntl
 import pty
@@ -16,7 +15,12 @@ def get_proxy():
   proxy = os.environ.get('http_proxy')
 
   if proxy:
-    proxy = urllib.parse.urlparse(proxy).netloc
+    try:
+      from urllib.parse import urlparse
+    except:
+      from urlparse import urlparse
+
+    proxy = urlparse(proxy).netloc
 
     if ':' in proxy:
       proxy = proxy.split(':')
